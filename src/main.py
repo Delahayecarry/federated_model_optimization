@@ -22,11 +22,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
  
 # 导入项目模块
-from . import config
-from . import data_utils
-from . import model_definition
-from . import federated_training
-from . import evaluate
+from src import config
+from src import data_utils
+from src import model_definition
+from src import federated_training
+from src import evaluation
 
 def parse_args():
     """解析命令行参数。"""
@@ -291,7 +291,7 @@ def run_evaluation(args):
     # Evaluate model
     try:
         logger.info("开始模型评估...")
-        metrics = evaluate.evaluate_model(
+        metrics = evaluation.evaluate_model(
             model_path=model_path,
             test_data_x=test_x,
             test_data_y_normalized=test_y,
