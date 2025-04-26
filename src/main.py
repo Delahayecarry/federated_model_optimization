@@ -6,7 +6,7 @@
 import argparse
 import logging
 import os
-import tensorflow as tf
+import tensorflow
 import tensorflow_federated as tff
 import sys
 
@@ -135,9 +135,8 @@ def run_training():
     # 设置TFF执行器 - 匹配notebook的执行器设置
     try:
         logger.info("设置TensorFlow Federated执行环境...")
+        # 更新为tff0.74.0版本
         tff.backends.native.set_local_execution_context()
-        # 如果需要，匹配notebook的执行器:
-        # tff.framework.set_default_executor(tff.framework.ReferenceExecutor())
     except Exception as e:
         logger.error(f"TFF执行环境设置失败: {e}", exc_info=True)
         return False

@@ -38,7 +38,13 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
     # 使用model_definition中的model_fn和来自配置的优化器速率
     try:
         logger.info(f"构建联邦平均过程，客户端学习率={config.CLIENT_LEARNING_RATE}，服务器学习率={config.SERVER_LEARNING_RATE}")
-        iterative_process = tff.learning.build_federated_averaging_process(
+        # 更新为tff0.74.0版本学习api
+        '''
+        # 新版API
+iterative_process = tff.learning.algorithms.build_weighted_fed_avg(...)
+evaluation = tff.learning.algorithms.build_fed_eval(...)
+'''
+        iterative_process = tff.learning.algorithms.build_weighted_fed_avg(
             model_fn=model_definition.model_fn,
             client_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=config.CLIENT_LEARNING_RATE),
             server_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=config.SERVER_LEARNING_RATE)
@@ -53,7 +59,15 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
     # 2. 构建评估计算
     try:
         logger.info("构建联邦评估计算。")
-        evaluation = tff.learning.build_federated_evaluation(model_definition.model_fn)
+        # 更新为tff0.74.0版本学习api
+        '''
+        # 新版API
+        evaluation = tff.learning.algorithms.build_fed_eval(...)
+        '''
+        evaluation = tff.learning.algorithms.build_fed_eval(
+            model_fn=model_definition.model_fn,
+            metrics=tff.learning.metrics.sum_over_batch_size(tf.keras.metrics.MeanAbsoluteError())
+        )
         logger.info("联邦评估计算构建成功。")
         logger.debug(f"评估类型签名: {evaluation.type_signature}")
     except Exception as e:
@@ -136,7 +150,14 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
         local_fed_model = model_definition.create_keras_model()
 
         # 从最佳服务器状态分配权重
-        tff.learning.assign_weights_to_keras_model(local_fed_model, best_state.model)
+        '''
+        # 旧版API
+        tff.learning.assign_weights_to_keras_model(keras_model, state.model)
+
+        # 新版API
+        tff.learning.models.keras_utils.assign_weights_to_keras_model(keras_model, state.model)'''
+        # 更新为tff0.74.0版本api
+        tff.learning.models.keras_utils.assign_weights_to_keras_model(local_fed_model, best_state.model)
         logger.info("成功将权重分配给Keras模型。")
 
         # 从配置中定义保存路径

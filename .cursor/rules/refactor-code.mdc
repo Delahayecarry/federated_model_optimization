@@ -1,0 +1,137 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+
+## 项目升级计划与TODO清单
+
+### 1. 环境配置与依赖
+
+- [ ] 安装最新版本的TensorFlow（目前为TF 2.15.0）
+- [ ] 安装最新版本的TensorFlow Federated（目前为TFF 0.74.0）
+- [ ] 创建新的虚拟环境以避免与原项目冲突
+- [ ] 更新requirements.txt文件列出所有新的依赖版本
+
+### 2. TFF API更新
+
+- [ ] 更新TFF执行器配置（已废弃的API）
+
+```
+# 旧代码
+tff.framework.set_default_executor(tff.framework.create_local_executor())
+# 或
+tff.backends.native.set_local_python_execution_context()
+
+# 新代码
+tff.backends.native.set_local_execution_context()
+```
+
+- [ ] 更新TFF学习API
+
+```
+# 旧版API
+iterative_process = tff.learning.build_federated_averaging_process(...)
+evaluation = tff.learning.build_federated_evaluation(...)
+
+# 新版API
+iterative_process = tff.learning.algorithms.build_weighted_fed_avg(...)
+evaluation = tff.learning.algorithms.build_fed_eval(...)
+```
+
+- [ ] 更新模型包装函数
+
+```
+# 旧版API
+return tff.learning.from_keras_model(
+    keras_model=keras_model,
+    input_spec=BATCH_SPEC,
+    loss=tf.keras.losses.MeanSquaredError(),
+    metrics=[tf.keras.metrics.MeanAbsoluteError()]
+)
+
+# 新版API
+return tff.learning.models.keras_utils.from_keras_model(
+    keras_model=keras_model,
+    input_spec=BATCH_SPEC,
+    loss=tf.keras.losses.MeanSquaredError(),
+    metrics=[tf.keras.metrics.MeanAbsoluteError()]
+)
+```
+
+### 3. TensorFlow API更新
+
+- [ ] 更新优化器API（从旧版过渡到keras.optimizers.legacy或keras.optimizers.experimental）
+
+```
+# 旧版API
+tf.keras.optimizers.SGD(learning_rate=config.CLIENT_LEARNING_RATE)
+
+# 新版API选项1(推荐)
+tf.keras.optimizers.SGD(learning_rate=config.CLIENT_LEARNING_RATE)
+
+# 新版API选项2(如果有兼容性问题)
+tf.keras.optimizers.legacy.SGD(learning_rate=config.CLIENT_LEARNING_RATE)
+```
+
+- [ ] 更新模型保存API
+
+```
+# 确保使用正确的保存API
+tf.keras.models.save_model(model, path, save_format='tf')
+```
+
+### 4. 模型架构更新
+
+- [ ] 使用tf.keras.Sequential的函数式API（更灵活）
+- [ ] 使用新版本支持的层和激活函数
+- [ ] 更新模型权重分配方法
+
+```
+# 旧版API
+tff.learning.assign_weights_to_keras_model(keras_model, state.model)
+
+# 新版API
+tff.learning.models.keras_utils.assign_weights_to_keras_model(keras_model, state.model)
+```
+
+### 5. 数据预处理更新
+
+- [ ] 将tf.data Pipeline更新为最新API模式
+- [ ] 确保preprocess_and_load_federated_data()函数与新版TFF数据格式兼容
+- [ ] 更新数据批次规格定义，确保与新版本一致
+
+### 6. 日志与监控更新
+
+- [ ] 确保当前的日志记录与新版本的TensorFlow兼容
+- [ ] 考虑添加TensorBoard支持进行可视化（如果尚未添加）
+
+### 7. 性能优化
+
+- [ ] 利用最新版本TF的性能改进（如混合精度训练）
+- [ ] 使用TF的分布式训练特性（如果适用）
+- [ ] 优化数据加载和预处理管道
+
+### 8. 测试与验证
+
+- [ ] 创建一套测试用例来验证升级后功能与原功能一致
+- [ ] 确保预测结果与之前模型类似
+- [ ] 测试边界情况和异常处理
+
+### 9. 文档更新
+
+- [ ] 更新所有代码注释以反映新API
+- [ ] 更新README和用户手册（如果有）
+- [ ] 为新增功能添加文档
+
+### 10. 实施步骤计划
+
+1. 先创建一个新分支用于升级
+2. 按模块逐步更新（config → model_definition → data_utils → federated_training → evaluation → main）
+3. 每更新一个模块就进行测试，确保兼容性
+4. 最后整合所有更改并进行端到端测试
+
+执行这个计划时，建议先在小范围数据上测试性能和准确性，然后再扩展到完整数据集。同时记录旧版和新版的性能指标，以便比较两者之间的差异。
+
+需要特别注意的是TFF的API变化较大，在升级过程中可能需要查阅最新的TFF文档以确保正确使用新API。

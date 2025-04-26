@@ -1,8 +1,3 @@
-import sys
-def main():
-    python_version = sys.version
-    print(f"Python version: {python_version}")
+import tensorflow_federated as tff
 
-
-if __name__ == "__main__":
-    main()
+print(dir(tff))

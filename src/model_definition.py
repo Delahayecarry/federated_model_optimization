@@ -65,6 +65,16 @@ def model_fn():
 
     # 将Keras模型包装以在TFF中使用。
     # 在这里定义损失和度量。
+    '''
+    旧版API
+    return tff.learning.from_keras_model(
+        keras_model=keras_model,
+        input_spec=BATCH_SPEC,
+        loss=tf.keras.losses.MeanSquaredError(),
+        metrics=[tf.keras.metrics.MeanAbsoluteError()] # 与notebook中的指标匹配
+    )
+    '''
+    # 新版API
     return tff.learning.from_keras_model(
         keras_model=keras_model,
         input_spec=BATCH_SPEC,

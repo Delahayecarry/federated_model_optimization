@@ -10,3 +10,10 @@ wheels/
 .venv
 .python-version
 /install
+
+Office_Cold_6000-9000_6-10_13.npz
+# 忽略所有log文件
+*.log
+*.pyc
+*.pyo
+*.pyd
