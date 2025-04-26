@@ -2,12 +2,12 @@ import tensorflow as tf
 import tensorflow_federated as tff
 import logging
 import os
-import collections # 需要用于类型提示（如果使用）
 
 # 使用相对导入导入src包内的模块
 from . import config
 from . import model_definition
 from . import data_utils # 用于测试块需要
+
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
@@ -39,15 +39,14 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
     try:
         logger.info(f"构建联邦平均过程，客户端学习率={config.CLIENT_LEARNING_RATE}，服务器学习率={config.SERVER_LEARNING_RATE}")
         # 更新为tff0.74.0版本学习api
-        '''
-        # 新版API
-iterative_process = tff.learning.algorithms.build_weighted_fed_avg(...)
-evaluation = tff.learning.algorithms.build_fed_eval(...)
-'''
         iterative_process = tff.learning.algorithms.build_weighted_fed_avg(
             model_fn=model_definition.model_fn,
-            client_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=config.CLIENT_LEARNING_RATE),
-            server_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=config.SERVER_LEARNING_RATE)
+            client_optimizer_fn=tff.learning.optimizers.build_sgdm(
+                learning_rate=config.CLIENT_LEARNING_RATE
+            ),
+            server_optimizer_fn=tff.learning.optimizers.build_sgdm(
+                learning_rate=config.SERVER_LEARNING_RATE
+            )
         )
         logger.info("联邦平均过程构建成功。")
         logger.debug(f"初始化类型签名: {iterative_process.initialize.type_signature}")
@@ -66,10 +65,9 @@ evaluation = tff.learning.algorithms.build_fed_eval(...)
         '''
         evaluation = tff.learning.algorithms.build_fed_eval(
             model_fn=model_definition.model_fn,
-            metrics=tff.learning.metrics.sum_over_batch_size(tf.keras.metrics.MeanAbsoluteError())
         )
         logger.info("联邦评估计算构建成功。")
-        logger.debug(f"评估类型签名: {evaluation.type_signature}")
+        logger.debug(f"评估类型签名: {evaluation.initialize.type_signature}")
     except Exception as e:
         logger.error(f"构建联邦评估计算失败: {e}", exc_info=True)
         return None
@@ -157,7 +155,7 @@ evaluation = tff.learning.algorithms.build_fed_eval(...)
         # 新版API
         tff.learning.models.keras_utils.assign_weights_to_keras_model(keras_model, state.model)'''
         # 更新为tff0.74.0版本api
-        tff.learning.models.keras_utils.assign_weights_to_keras_model(local_fed_model, best_state.model)
+        local_fed_model.set_weights(best_state.model.trainable)
         logger.info("成功将权重分配给Keras模型。")
 
         # 从配置中定义保存路径

@@ -6,8 +6,8 @@
 import argparse
 import logging
 import os
-import tensorflow
 import tensorflow_federated as tff
+import tensorflow as tf
 import sys
 
 # 配置日志
@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 # 导入项目模块
 from src import config
 from src import data_utils
-from src import model_definition
 from src import federated_training
 from src import evaluation
 
@@ -136,7 +135,7 @@ def run_training():
     try:
         logger.info("设置TensorFlow Federated执行环境...")
         # 更新为tff0.74.0版本
-        tff.backends.native.set_local_execution_context()
+        tff.backends.native.create_sync_local_cpp_execution_context()
     except Exception as e:
         logger.error(f"TFF执行环境设置失败: {e}", exc_info=True)
         return False
@@ -164,7 +163,7 @@ def run_hyperparameter_tuning(args):
     neurons_to_try = [int(x) for x in args.search_neurons.split(',')] if args.search_neurons else [5, 10, 15, 20, 25]
     activations_to_try = args.search_activations.split(',') if args.search_activations else ['relu', 'tanh', 'sigmoid']
     
-    logger.info(f"超参数搜索空间: ")
+    logger.info("超参数搜索空间: ")
     logger.info(f"  - 层数: {layers_to_try}")
     logger.info(f"  - 神经元数: {neurons_to_try}")
     logger.info(f"  - 激活函数: {activations_to_try}")
@@ -184,7 +183,10 @@ def run_hyperparameter_tuning(args):
     # 设置TFF执行器
     try:
         logger.info("设置TensorFlow Federated执行环境...")
-        tff.backends.native.set_local_execution_context()
+        local_context = tff.backends.native.create_local_execution_context()
+
+        # 设置默认执行上下文
+        tff.framework.set_default_context(local_context)
     except Exception as e:
         logger.error(f"TFF执行环境设置失败: {e}", exc_info=True)
         return False
