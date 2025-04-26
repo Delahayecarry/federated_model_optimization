@@ -2,6 +2,11 @@ import tensorflow as tf
 import tensorflow_federated as tff
 import logging
 import os
+import warnings
+
+# 抑制警告和TF日志
+warnings.filterwarnings('ignore')
+tf.get_logger().setLevel(logging.ERROR)
 
 # 使用相对导入导入src包内的模块
 from . import config
@@ -9,9 +14,20 @@ from . import model_definition
 from . import data_utils # 用于测试块需要
 
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+# 配置日志 - 使用特定于此模块的logger
 logger = logging.getLogger(__name__)
+
+# 提供一个函数输出漂亮的进度条，减少需要的日志信息
+def print_progress(current, total, message="", bar_length=30):
+    """在控制台打印进度条"""
+    percent = float(current) / total
+    arrow = "-" * int(round(percent * bar_length))
+    spaces = " " * (bar_length - len(arrow))
+    
+    # 使用\r覆盖同一行，避免日志过多
+    print(f"\r[{arrow}{spaces}] {int(round(percent * 100))}% {message}", end="", flush=True)
+    if current == total:
+        print()  # 添加换行符
 
 def _ensure_dir_exists(path):
     """确保给定路径的目录存在。"""
@@ -39,15 +55,17 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
     try:
         logger.info(f"构建联邦平均过程，客户端学习率={config.CLIENT_LEARNING_RATE}，服务器学习率={config.SERVER_LEARNING_RATE}")
         # 更新为tff0.74.0版本学习api
-        iterative_process = tff.learning.algorithms.build_weighted_fed_avg(
-            model_fn=model_definition.model_fn,
-            client_optimizer_fn=tff.learning.optimizers.build_sgdm(
-                learning_rate=config.CLIENT_LEARNING_RATE
-            ),
-            server_optimizer_fn=tff.learning.optimizers.build_sgdm(
-                learning_rate=config.SERVER_LEARNING_RATE
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # 在此块中抑制所有警告
+            iterative_process = tff.learning.algorithms.build_weighted_fed_avg(
+                model_fn=model_definition.model_fn,
+                client_optimizer_fn=tff.learning.optimizers.build_sgdm(
+                    learning_rate=config.CLIENT_LEARNING_RATE
+                ),
+                server_optimizer_fn=tff.learning.optimizers.build_sgdm(
+                    learning_rate=config.SERVER_LEARNING_RATE
+                )
             )
-        )
         logger.info("联邦平均过程构建成功。")
         logger.debug(f"初始化类型签名: {iterative_process.initialize.type_signature}")
         logger.debug(f"下一步类型签名: {iterative_process.next.type_signature}")
@@ -84,6 +102,7 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
     # 4. 运行训练循环
     logger.info(f"开始训练循环，共{config.NUM_ROUNDS}轮...")
     history = {'loss': [], 'mean_absolute_error': [], 'val_loss': [], 'val_mean_absolute_error': []}
+    evaluation_state = evaluation.initialize()  # 初始化评估状态
     best_val_metric = float('inf')
     best_state = state
     rounds_without_improvement = 0
@@ -91,43 +110,139 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
 
     for round_num in range(config.NUM_ROUNDS):
         try:
+            # 显示进度条
+            print_progress(round_num, config.NUM_ROUNDS, f"训练中... 轮次 {round_num+1}/{config.NUM_ROUNDS}")
+            
             # 运行一轮训练
-            state, metrics = iterative_process.next(state, federated_train_data)
-            train_metrics = metrics['train'] # TFF在'train'下嵌套训练指标
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # 忽略训练内部的警告
+                state, metrics = iterative_process.next(state, federated_train_data)
+
+            # 使用正确的嵌套结构访问训练指标
+            train_metrics = metrics['client_work']['train']
             history['loss'].append(float(train_metrics['loss']))
             history['mean_absolute_error'].append(float(train_metrics['mean_absolute_error']))
 
-            # 在验证数据上评估
-            valid_metrics = evaluation(state.model, federated_valid_data)
-            val_loss = float(valid_metrics['loss'])
-            val_mae = float(valid_metrics['mean_absolute_error']) # MAE是model_fn中定义的第二个指标
+            # 在验证数据上评估 - 使用新的评估API
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # 忽略评估内部的警告
+                evaluation_result = evaluation.next(evaluation_state, federated_valid_data)
+            
+            evaluation_state = evaluation_result.state
+            valid_metrics = evaluation_result.metrics
+            
+            # 输出完整的验证指标结构用于调试
+            logger.info(f"验证指标结构: {valid_metrics}")
+            
+            # 更新指标访问路径以匹配新的API结构
+            try:
+                # 先添加一个递归搜索函数，帮助找到指标
+                def find_metrics_in_dict(metrics_dict, target_keys, path=""):
+                    """
+                    递归搜索字典中的指标键
+                    返回找到的第一个目标键的值和路径
+                    """
+                    results = {}
+                    
+                    if not isinstance(metrics_dict, dict):
+                        return results
+                    
+                    # 先检查当前级别
+                    for key in target_keys:
+                        if key in metrics_dict:
+                            results[key] = {
+                                'value': metrics_dict[key],
+                                'path': f"{path}.{key}" if path else key
+                            }
+                    
+                    # 如果没有找到所有目标键，递归搜索下一级
+                    if len(results) < len(target_keys):
+                        for k, v in metrics_dict.items():
+                            if isinstance(v, dict):
+                                new_path = f"{path}.{k}" if path else k
+                                sub_results = find_metrics_in_dict(v, target_keys, new_path)
+                                # 合并结果，但不覆盖已找到的键
+                                for sub_key, sub_value in sub_results.items():
+                                    if sub_key not in results:
+                                        results[sub_key] = sub_value
+                    
+                    return results
+                
+                # 搜索loss和mean_absolute_error键
+                target_metrics = ['loss', 'mean_absolute_error']
+                found_metrics = find_metrics_in_dict(valid_metrics, target_metrics)
+                
+                logger.debug(f"找到的指标: {found_metrics}")
+                
+                # 提取找到的指标值
+                if 'loss' in found_metrics:
+                    val_loss = float(found_metrics['loss']['value'])
+                    logger.info(f"从路径 {found_metrics['loss']['path']} 获取损失值")
+                else:
+                    # 如果找不到损失，尝试替代指标或使用NaN
+                    logger.warning("找不到loss指标，尝试其他可能的指标名称")
+                    
+                    # 尝试其他可能的损失指标名称
+                    mse_metrics = find_metrics_in_dict(valid_metrics, ['mean_squared_error', 'mse'])
+                    if 'mean_squared_error' in mse_metrics:
+                        val_loss = float(mse_metrics['mean_squared_error']['value'])
+                        logger.info(f"使用 {mse_metrics['mean_squared_error']['path']} 作为替代损失指标")
+                    elif 'mse' in mse_metrics:
+                        val_loss = float(mse_metrics['mse']['value'])
+                        logger.info(f"使用 {mse_metrics['mse']['path']} 作为替代损失指标")
+                    else:
+                        val_loss = float('nan')
+                        logger.warning("无法找到任何损失相关指标，使用NaN")
+                
+                if 'mean_absolute_error' in found_metrics:
+                    val_mae = float(found_metrics['mean_absolute_error']['value'])
+                    logger.info(f"从路径 {found_metrics['mean_absolute_error']['path']} 获取MAE值")
+                else:
+                    # 如果找不到MAE，尝试替代指标或使用NaN
+                    logger.warning("找不到mean_absolute_error指标，尝试其他可能的指标名称")
+                    
+                    # 尝试其他可能的MAE指标名称
+                    mae_metrics = find_metrics_in_dict(valid_metrics, ['mae'])
+                    if 'mae' in mae_metrics:
+                        val_mae = float(mae_metrics['mae']['value'])
+                        logger.info(f"使用 {mae_metrics['mae']['path']} 作为替代MAE指标")
+                    else:
+                        val_mae = float('nan')
+                        logger.warning("无法找到任何MAE相关指标，使用NaN")
+            except Exception as e:
+                logger.error(f"访问验证指标时出错: {e}", exc_info=True)
+                val_loss = float('nan')
+                val_mae = float('nan')
+                
+            # 记录提取的指标到历史记录
             history['val_loss'].append(val_loss)
             history['val_mean_absolute_error'].append(val_mae)
 
-            logger.info(f"第{round_num+1:3d}/{config.NUM_ROUNDS}轮 - "
-                        f"训练损失: {train_metrics['loss']:.4f}, 训练MAE: {train_metrics['mean_absolute_error']:.4f} | "
-                        f"验证损失: {val_loss:.4f}, 验证MAE: {val_mae:.4f}")
+            # 打印训练进度摘要 - 改用单行输出，避免过多日志
+            progress_msg = (f"第{round_num+1:3d}/{config.NUM_ROUNDS}轮 - "
+                            f"训练: loss={train_metrics['loss']:.4f}, MAE={train_metrics['mean_absolute_error']:.4f} | "
+                            f"验证: loss={val_loss:.4f}, MAE={val_mae:.4f}")
+            print(f"\r{progress_msg}", end="", flush=True)
 
-            # 早停逻辑（基于验证MAE，就像notebook似乎隐式使用的那样，通过索引）
-            # 使用MAE是因为越低越好，而且通常是主要的回归指标。
-            # notebook代码使用valid_metrics[1]，这里对应于MAE。
+            # 早停逻辑
             if val_mae < best_val_metric:
                 improvement = best_val_metric - val_mae
                 best_val_metric = val_mae
                 best_state = state
                 rounds_without_improvement = 0
-                logger.info(f"  新的最佳验证MAE: {best_val_metric:.4f}。改进: {improvement:.4f}")
+                # 对于改进，换一行打印，使其更明显
+                print(f"\n  新的最佳验证MAE: {best_val_metric:.4f}。改进: {improvement:.4f}")
                 # 如果需要，检查相对改进阈值（类似notebook）
                 if len(history['val_mean_absolute_error']) > 1:
                     relative_improvement = (history['val_mean_absolute_error'][-2] - val_mae) / history['val_mean_absolute_error'][-2] if history['val_mean_absolute_error'][-2] != 0 else float('inf')
-                    logger.info(f"  相对改进: {relative_improvement:.5f}")
+                    print(f"  相对改进: {relative_improvement:.5f}")
                     if relative_improvement < config.EARLY_STOPPING_THRESHOLD:
-                        logger.info(f"提前停止: 相对改进({relative_improvement:.5f})低于阈值({config.EARLY_STOPPING_THRESHOLD})。")
+                        print(f"\n提前停止: 相对改进({relative_improvement:.5f})低于阈值({config.EARLY_STOPPING_THRESHOLD})。")
                         break
 
             else:
                 rounds_without_improvement += 1
-                logger.info(f"  验证MAE已连续{rounds_without_improvement}轮没有改进。最佳: {best_val_metric:.4f}")
+                print(f"\n  验证MAE已连续{rounds_without_improvement}轮没有改进。最佳: {best_val_metric:.4f}")
                 # 可选: 如果'patience'轮内没有改进则停止
                 # if rounds_without_improvement >= early_stopping_patience:
                 #     logger.info(f"提前停止: {early_stopping_patience}轮内没有改进。")
@@ -148,14 +263,7 @@ def run_federated_training(federated_train_data: list, federated_valid_data: lis
         local_fed_model = model_definition.create_keras_model()
 
         # 从最佳服务器状态分配权重
-        '''
-        # 旧版API
-        tff.learning.assign_weights_to_keras_model(keras_model, state.model)
-
-        # 新版API
-        tff.learning.models.keras_utils.assign_weights_to_keras_model(keras_model, state.model)'''
-        # 更新为tff0.74.0版本api
-        local_fed_model.set_weights(best_state.model.trainable)
+        local_fed_model.set_weights(best_state.global_model_weights.trainable)
         logger.info("成功将权重分配给Keras模型。")
 
         # 从配置中定义保存路径
@@ -191,6 +299,24 @@ if __name__ == '__main__':
 
     # 设置TFF执行器（如果独立运行需要）- 选择适当的执行器
     # tff.backends.native.set_local_python_execution_context() # 示例: 原生后端
+    try:
+        # 尝试新的API路径
+        if hasattr(tff.backends.native, 'set_sync_local_cpp_execution_context'):
+            logger.info("使用set_sync_local_cpp_execution_context")
+            tff.backends.native.set_sync_local_cpp_execution_context()
+        elif hasattr(tff.backends.native, 'set_local_execution_context'):
+            logger.info("使用set_local_execution_context")
+            tff.backends.native.set_local_execution_context()
+        else:
+            # 尝试其他可能的API
+            logger.warning("找不到标准TFF执行上下文API，尝试其他方法")
+            if hasattr(tff.backends, 'native'):
+                logger.info(f"可用的native后端方法: {dir(tff.backends.native)}")
+                # 使用最可能的替代方法
+                tff.backends.native.set_sync_local_cpp_execution_context()
+    except Exception as e:
+        logger.error(f"设置TFF执行上下文时出错: {e}")
+        logger.error("继续运行，但可能会遇到问题")
 
     try:
         # 1. 使用data_utils加载数据

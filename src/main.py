@@ -9,18 +9,50 @@ import os
 import tensorflow_federated as tff
 import tensorflow as tf
 import sys
+import warnings
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(stream=sys.stdout),
-        logging.FileHandler(filename='federated_learning.log', mode='a')
-    ]
-)
-logger = logging.getLogger(__name__)
- 
+# 抑制警告
+warnings.filterwarnings('ignore')
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 抑制TensorFlow日志
+tf.get_logger().setLevel(logging.ERROR)  # 设置TF日志级别为ERROR
+
+# 配置日志 - 分离控制台和文件日志
+def setup_logging():
+    """配置日志系统，将详细日志输出到文件，简洁日志输出到控制台"""
+    # 创建logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # 清除现有的处理器
+    if logger.handlers:
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
+    
+    # 创建文件处理器 - 记录所有级别的日志
+    os.makedirs('logs', exist_ok=True)
+    file_handler = logging.FileHandler(filename='logs/federated_learning.log', mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    
+    # 创建控制台处理器 - 只显示错误和自定义信息
+    console_handler = logging.StreamHandler(stream=sys.stdout)
+    console_handler.setLevel(logging.ERROR)  # 默认只显示ERROR级别
+    console_formatter = logging.Formatter('%(message)s')  # 简洁格式，只显示消息
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # 专门为项目模块设置INFO级别
+    for module in ['__main__', 'src.main', 'src.federated_training']:
+        module_logger = logging.getLogger(module)
+        module_logger.setLevel(logging.INFO)
+    
+    return logger
+
+# 设置日志系统
+logger = setup_logging()
+
 # 导入项目模块
 from src import config
 from src import data_utils
@@ -135,7 +167,7 @@ def run_training():
     try:
         logger.info("设置TensorFlow Federated执行环境...")
         # 更新为tff0.74.0版本
-        tff.backends.native.create_sync_local_cpp_execution_context()
+        tff.backends.native.create_sync_local_cpp_execution_context()       
     except Exception as e:
         logger.error(f"TFF执行环境设置失败: {e}", exc_info=True)
         return False
@@ -145,7 +177,10 @@ def run_training():
     try:
         final_state = federated_training.run_federated_training(train_data, valid_data)
         if final_state:
-            logger.info("联邦训练完成！")
+            print("联邦训练完成！")
+            
+            # print(f"State结构: {final_state}")  # 尝试打印整个state对象
+            
             return True
         else:
             logger.error("联邦训练失败，未返回有效状态。")
@@ -183,10 +218,7 @@ def run_hyperparameter_tuning(args):
     # 设置TFF执行器
     try:
         logger.info("设置TensorFlow Federated执行环境...")
-        local_context = tff.backends.native.create_local_execution_context()
-
-        # 设置默认执行上下文
-        tff.framework.set_default_context(local_context)
+        tff.backends.native.set_local_execution_context()
     except Exception as e:
         logger.error(f"TFF执行环境设置失败: {e}", exc_info=True)
         return False

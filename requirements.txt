@@ -1,0 +1,7 @@
+tensorflow==2.14.0
+tensorflow-federated==0.87.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.5.0
+tqdm>=4.60.0
+scikit-learn>=1.0.0 

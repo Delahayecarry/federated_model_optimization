@@ -75,12 +75,48 @@ def model_fn():
     )
     '''
     # 新版API
-    return tff.learning.models.from_keras_model(
-        keras_model=keras_model,
-        input_spec=BATCH_SPEC,
-        loss=tf.keras.losses.MeanSquaredError(),
-        metrics=[tf.keras.metrics.MeanAbsoluteError()] # 与notebook中的指标匹配
-    )
+    try:
+        # 对于TFF 0.87.0，确保使用正确的路径
+        # 首先尝试新的推荐路径
+        if hasattr(tff.learning, 'models') and hasattr(tff.learning.models, 'from_keras_model'):
+            logger.info("使用 tff.learning.models.from_keras_model API")
+            return tff.learning.models.from_keras_model(
+                keras_model=keras_model,
+                input_spec=BATCH_SPEC,
+                loss=tf.keras.losses.MeanSquaredError(),
+                metrics=[tf.keras.metrics.MeanAbsoluteError(name='mean_absolute_error')] # 明确指定名称
+            )
+        # 回退到可能的替代路径
+        elif hasattr(tff.learning, 'from_keras_model'):
+            logger.warning("回退到 tff.learning.from_keras_model API")
+            return tff.learning.from_keras_model(
+                keras_model=keras_model,
+                input_spec=BATCH_SPEC,
+                loss=tf.keras.losses.MeanSquaredError(),
+                metrics=[tf.keras.metrics.MeanAbsoluteError(name='mean_absolute_error')]
+            )
+        else:
+            # 如果找不到已知的API，记录错误并尝试基于模块检查
+            logger.error("找不到任何已知的TFF Keras模型包装API")
+            # 打印可用的TFF学习模块内容以帮助诊断
+            tff_learning_content = dir(tff.learning)
+            logger.debug(f"TFF学习模块内容: {tff_learning_content}")
+            if 'models' in tff_learning_content:
+                tff_learning_models_content = dir(tff.learning.models)
+                logger.debug(f"TFF学习模型模块内容: {tff_learning_models_content}")
+            
+            # 尝试最可能的路径
+            logger.warning("尝试推测正确的API路径")
+            return tff.learning.models.from_keras_model(
+                keras_model=keras_model,
+                input_spec=BATCH_SPEC,
+                loss=tf.keras.losses.MeanSquaredError(),
+                metrics=[tf.keras.metrics.MeanAbsoluteError(name='mean_absolute_error')]
+            )
+    except Exception as e:
+        logger.error(f"创建TFF模型时出错: {e}", exc_info=True)
+        # 重新抛出异常，因为这是一个关键错误
+        raise
 
 if __name__ == '__main__':
     # 如果直接运行此脚本进行测试的示例用法

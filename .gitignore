@@ -1,19 +1,70 @@
-# Python-generated files
+# Python
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Virtual environments
+# Virtual Environment
+.env
 .venv
-.python-version
-/install
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs 
+*.log
+logs/
+
+# IDE and Editor specific
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# TensorFlow and Machine Learning specific
+checkpoint
+*.ckpt.*
+*.ckpt
+*.pb
+*.pbtxt
+.ipynb_checkpoints/
+.ruff_cache/
+
+# Project specific
+federated_model_optimization.ipynb
+test_tff_metrics.py
+uv.lock
+
+# 保留以下内容
+# models/ 目录，但排除大型模型文件
+models/*
+!models/.gitkeep
 
 Office_Cold_6000-9000_6-10_13.npz
 # 忽略所有log文件
-*.log
 *.pyc
 *.pyo
 *.pyd
