@@ -5,7 +5,7 @@ description = "A federated learning framework for optimizing building energy con
 readme = "README.md"
 requires-python = ">=3.8.0"
 dependencies = [
-    "tensorflow==2.5.0",
+    "tensorflow==1.15.0",
     "tensorflow-federated>=0.1.0",
 ]
 
